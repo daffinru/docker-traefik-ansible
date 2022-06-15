@@ -1,0 +1,58 @@
+---
+- name: Creating user "{{ username }}" with admin access
+  user:
+    name: "{{ username }}"
+    password: "{{ password }}"
+    groups: sudo
+    shell: /bin/bash
+
+- name: Run the equivalent of "apt-get update" as a separate step
+  apt:
+    update_cache: yes
+
+- name: Upgrade the OS (apt-get dist-upgrade)
+  apt:
+    upgrade: dist
+
+- name: Install a list of packages
+  apt:
+    pkg:
+    - mc
+    - htop
+    - curl
+
+- name: Generate iptables config
+  copy:
+    src: "iptables-save"
+    dest: "/etc/iptables-save"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  register: iptables_register_config
+
+- name: Copy systemd unit file
+  copy:
+    src: "etc/systemd/system/iptables-restore.service"
+    dest: "/etc/systemd/system/iptables-restore.service"
+    owner: "root"
+    group: "root"
+    mode: "0644"
+  register: iptables_register_unit
+
+- name: Reload systemd daemon
+  command: "systemctl daemon-reload"
+
+- name: Restart iptables service
+  service:
+    name: "iptables-restore"
+    state: "restarted"
+    enabled: True
+
+- name: Copy .inputrc file
+  copy:
+    src: ".inputrc"
+    dest: "/home/{{ username }}/.inputrc"
+    owner: "{{ username }}"
+    group: "{{ username }}"
+    mode: "0664"
+

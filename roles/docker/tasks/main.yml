@@ -1,0 +1,145 @@
+---
+- name: Install required system packages
+  apt:
+    pkg:
+      - apt-transport-https
+      - ca-certificates
+      - software-properties-common
+    state: latest
+    update_cache: true
+
+- name: Add Docker GPG apt Key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+
+- name: Add Docker Repository
+  apt_repository:
+    repo: deb https://download.docker.com/linux/ubuntu {{ubuntu_ver}} stable
+    state: present
+
+- name: Update apt and install docker-ce
+  apt:
+    pkg:
+      - docker-ce
+      - docker-compose
+    state: latest
+    update_cache: true
+
+- name: Ensure /etc/docker/ directory exists.
+  file:
+    path: /etc/docker
+    state: directory
+    mode: 0755
+  when: docker_daemon_options.keys() | length > 0
+
+- name: Configure Docker daemon options.
+  copy:
+    content: "{{ docker_daemon_options | to_nice_json }}"
+    dest: /etc/docker/daemon.json
+    mode: 0644
+  when: docker_daemon_options.keys() | length > 0
+
+- name: Restart docker
+  service: "name=docker state=restarted"
+
+- name: Log into private registry and force re-authorization
+  docker_login:
+    registry: "{{ registry_url }}"
+    username: "{{ username }}"
+    password: "{{ registry_passwd }}"
+    reauthorize: yes
+
+- name: Add remote "{{ username }}" user to "docker" group
+  user:
+    name: "{{ username }}"
+    groups: docker
+    append: yes
+
+- name: Ensures traefik dir exists
+  file:
+    path: "{{ traefik_dir }}"
+    state: directory
+    owner: "root"
+    group: "docker"
+
+- name: Ensures acme.json file exists
+  file:
+    path: "{{ traefik_dir }}/acme.json"
+    state: touch
+    mode: 0600
+
+- name: Adding traefik.yml file
+  template:
+    src: ../files/traefik.yml
+    dest: "{{ traefik_dir }}/traefik.yml"
+    mode: 0600
+
+- name: Create a network with options
+  docker_network:
+    name: web
+    driver_options:
+      com.docker.network.enable_ipv6: "false"
+      com.docker.network.bridge.name: "doc"
+
+- name: Create traefik container
+  docker_container:
+    name: traefik
+    image: traefik:latest
+    restart_policy: always
+    recreate: yes
+    container_default_behavior: compatibility
+    networks:
+      - name: web
+    purge_networks: yes
+    ports:
+      - "80:80"
+      - "443:443"
+    env:
+      CF_API_EMAIL: "{{ cf_api_email }}"
+      CF_DNS_API_TOKEN: "{{ cf_api_token }}"
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - "{{ traefik_dir }}/traefik.yml:/traefik.yml:ro"
+      - "{{ traefik_dir }}/acme.json:/acme.json"
+    labels:
+      traefik.enable: "false"
+      com.centurylinklabs.watchtower.enable: "true"
+
+- name: Create nginx container
+  docker_container:
+    name: nginx
+    image: reg.example.ru/nginx:latest
+    restart_policy: always
+    recreate: yes
+    container_default_behavior: compatibility
+    networks:
+      - name: web
+    purge_networks: yes
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.nginx.tls: "true"
+      traefik.http.routers.nginx.entrypoints: "websecure"
+      traefik.http.routers.nginx.rule: "Host(`example.ru`, `www.example.ru`)"
+      com.centurylinklabs.watchtower.enable: "true"
+
+- name: Create watchtower container
+  docker_container:
+    name: watchtower
+    image: containrrr/watchtower:latest
+    restart_policy: always
+    recreate: yes
+    container_default_behavior: compatibility
+    networks:
+      - name: web
+    purge_networks: yes
+    env:
+      WATCHTOWER_CLEANUP: "true"
+      WATCHTOWER_LABEL_ENABLE: "true"
+      WATCHTOWER_INCLUDE_RESTARTING: "true"
+    volumes:
+      - /etc/timezone:/etc/timezone:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    labels:
+      com.centurylinklabs.watchtower.enable: "true"

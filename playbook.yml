@@ -1,0 +1,29 @@
+- hosts: myvds
+  user: root
+  become: yes
+  vars:
+    # created with:
+    # python3 -c 'import crypt; print(crypt.crypt("This is my Password", "$1$SomeSalt$"))'
+    username: login
+    password: $1$SomeSalt$UqddPX3r4kH3UL5jq5/ZI.
+    registry_passwd: VeyLZqnFfYmH
+    registry_url: reg.example.ru
+    ubuntu_ver: focal
+    traefik_dir: /dir/to/traefik
+    # Creating API tokens https://developers.cloudflare.com/api/tokens/create/   
+    cf_api_email: name@example.ru
+    cf_api_token: SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c
+    acme_domain: example.ru
+    docker_daemon_options: {
+      "live-restore": true,
+      "ipv6": false,
+      "log-driver": "json-file",
+      "log-opts": {
+        "max-size": "10m",
+        "max-file": "3"
+      }
+    }
+
+  roles:
+    - common
+    - docker
